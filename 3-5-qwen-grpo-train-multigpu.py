@@ -1,25 +1,25 @@
 # mamba activate torch-env
-# 多GPU GRPO训练版本（使用 accelerate）
+# Multi-GPU GRPO training (via accelerate)
 # 
 # ============================================================================
-# 重要：4-bit 量化 + 多GPU DDP 训练的正确启动方式
+# Important: how to launch 4-bit quantization + multi-GPU DDP training
 # ============================================================================
 # 
-# ❌ 错误方式（会导致 device mismatch 错误）：
+# ❌ Wrong way (causes a device-mismatch error):
 #    python 3-5-qwen-grpo-train-multigpu.py
 # 
-# ✅ 正确方式1（推荐，使用配置文件）：
+# ✅ Correct way 1 (preferred, use the config file):
 #    accelerate launch --config_file accelerate_config_2gpu.yaml 3-5-qwen-grpo-train-multigpu.py
 # 
-# ✅ 正确方式2（命令行指定参数）：
+# ✅ Correct way 2 (pass flags on the command line):
 #    accelerate launch --multi_gpu --num_processes=2 3-5-qwen-grpo-train-multigpu.py
 # 
-# ⚠️ 为什么需要 LOCAL_RANK：
-# - accelerate launch 会为每个GPU启动一个独立的Python进程
-# - 进程0: LOCAL_RANK=0 → 使用 GPU 0
-# - 进程1: LOCAL_RANK=1 → 使用 GPU 1
-# - 4-bit量化的模型必须在加载时就绑定到正确的设备
-# - device_map={'': LOCAL_RANK} 确保每个进程的模型加载到对应的GPU
+# ⚠️ Why LOCAL_RANK is required:
+# - accelerate launch starts a separate Python process per GPU
+# - Process 0: LOCAL_RANK=0 → GPU 0
+# - Process 1: LOCAL_RANK=1 → GPU 1
+# - A 4-bit model must be bound to the right device at load time
+# - device_map={'': LOCAL_RANK} loads each process's model onto its GPU
 # 
 # ============================================================================
 
@@ -34,31 +34,31 @@ import numpy as np
 import json
 from datetime import datetime
 
-# 导入统一的答案提取和比较工具
+# Import the shared answer extraction and comparison helpers
 from answer_utils import compare_answers, parse_answer_field, extract_number_from_text
 
 # ============================================================================
-# 奖励统计日志（用于训练过程监控）
+# Reward-statistics log (for monitoring training)
 # ============================================================================
 reward_call_count = 0
 reward_logs = []
 
 # ============================================================================
-# 性能分析工具
+# Timing helper
 # ============================================================================
 class Timer:
     def __init__(self, name):
         self.name = name
     def __enter__(self):
         self.start = time.time()
-        print(f"\n⏱️  [{self.name}] 开始...")
+        print(f"\n⏱️  [{self.name}] starting...")
         return self
     def __exit__(self, *args):
         elapsed = time.time() - self.start
-        print(f"✅ [{self.name}] 完成，耗时: {elapsed:.2f}秒 ({elapsed/60:.2f}分钟)")
+        print(f"✅ [{self.name}] done, elapsed: {elapsed:.2f}s ({elapsed/60:.2f}min)")
         return False
 
-# 检查GPU可用性
+# Check GPU availability
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
@@ -68,7 +68,7 @@ if torch.cuda.is_available():
     for i in range(gpu_count):
         print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
     
-    # 检查是否有不兼容的 P100
+    # Check for an incompatible P100
     for i in range(gpu_count):
         gpu_name = torch.cuda.get_device_name(i)
         if "P100" in gpu_name:
@@ -82,44 +82,44 @@ if torch.cuda.is_available():
 else:
     print("WARNING: CUDA not available, will use CPU (very slow!)")
 
-# 1. 配置 4-bit 量化参数
-with Timer("量化配置"):
+# 1. Configure 4-bit quantization
+with Timer("quantization config"):
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",  # 使用 NF4 量化
-        bnb_4bit_compute_dtype=torch.float16,  # 使用 float16（与 fp16 训练一致）
+        bnb_4bit_quant_type="nf4",  # use NF4 quantization
+        bnb_4bit_compute_dtype=torch.float16,  # use float16 (matches fp16 training)
         bnb_4bit_use_double_quant=True,
     )
 
-# 2. 准备数据 - 使用 response 作为 CoT 推理过程，answer 作为最终答案
-with Timer("数据集加载"):
+# 2. Prepare the data - use response as the CoT trace and answer as the final answer
+with Timer("dataset load"):
     ds = load_dataset("ankner/gsm8k-CoT", split="train")
-    # 小批量测试（10个样本）：
+    # Small-batch test (10 samples):
     # ds = load_dataset("ankner/gsm8k-CoT", split="train[:10]")
 
 def to_chat(e):
     """
-    将数据集格式转换为 GRPO 训练格式
-    输入字段（ankner/gsm8k-CoT）：
-    - question: 问题文本（字符串）
-    - response: CoT推理步骤（字符串）
-    - answer: 最终答案（字符串）
+    Convert the dataset into the GRPO training format
+    Input fields (ankner/gsm8k-CoT):
+    - question: question text (string)
+    - response: CoT reasoning steps (string)
+    - answer: final answer (string)
     
-    输出格式：
-    - prompt: 问题文本 + 格式指导（GRPO 必需字段）
-    - ground_truth: 正确答案（用于奖励函数评估）
+    Output format:
+    - prompt: question text + format instructions (required GRPO field)
+    - ground_truth: correct answer (used by the reward function)
     """
-    # 直接使用新数据集的字段，无需复杂解析
+    # Use the new dataset fields directly; no complex parsing
     final_ans = e["answer"].strip()
     
     # ============================================================================
-    # 格式指导Prompt：方案 3 - <ans> 标签版
+    # Format-instruction prompt: scheme 3, <ans> tags
     # ============================================================================
-    # 优点：
-    # - 清晰的职责分离：<think> 推理，<ans> 答案
-    # - 提取逻辑极简：直接匹配 <ans>...</ans>
-    # - 容错性好：保留回退机制
-    # - Token 效率高（~110 tokens）
+    # Benefits:
+    # - Clear split: <think> for reasoning, <ans> for the answer
+    # - Extraction is simple: match <ans>...</ans>
+    # - Tolerant: the fallback stays in place
+    # - Token-efficient (~110 tokens)
     # ============================================================================
     formatted_prompt = f"""Solve this math problem step by step.
 
@@ -144,161 +144,161 @@ Solution:"""
         "ground_truth": final_ans
     }
 
-with Timer("数据预处理"):
+with Timer("data preprocessing"):
     ds = ds.map(to_chat)
 
-# 3. 加载 Qwen-2.5-1.5B 模型和分词器
+# 3. Load the Qwen-2.5-1.5B model and tokenizer
 model_id = "Qwen/Qwen2.5-Coder-1.5B"
 
-with Timer("模型加载"):
-    # ⚠️ 4-bit量化 + 多GPU训练的特殊要求（TRL文档）:
-    # 方案1：使用 device_map={'': int(os.environ.get("LOCAL_RANK", 0))}
-    # 方案2：不使用 device_map，让 accelerate.prepare() 自动处理设备分配
-    # 这里使用方案1，确保每个进程的模型加载到正确的GPU上
+with Timer("model load"):
+    # ⚠️ Special requirements for 4-bit + multi-GPU training (TRL docs):
+    # Scheme 1: use device_map={'': int(os.environ.get("LOCAL_RANK", 0))}
+    # Scheme 2: skip device_map and let accelerate.prepare() place the model
+    # This file uses scheme 1 so each process loads the model onto the right GPU
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=bnb_config,
-        device_map={'': local_rank},  # ✅ 使用 LOCAL_RANK 环境变量
-        torch_dtype=torch.float16,  # 与量化和训练精度保持一致
+        device_map={'': local_rank},  # ✅ use the LOCAL_RANK environment variable
+        torch_dtype=torch.float16,  # match the quantization and training dtype
     )
     tok = AutoTokenizer.from_pretrained(model_id)
-    # 确保 Qwen 的 pad_token 设置正确
+    # Make sure Qwen's pad_token is set
     tok.pad_token = tok.eos_token
     model.config.use_cache = False
 
-# 4. 配置 LoRA 参数（TRL 最佳实践）
+# 4. Configure LoRA (TRL practice)
 lora_config = LoraConfig(
-    r=16, # R值
-    lora_alpha=32, # Alpha值（通常是r的2倍）
-    # ✅ TRL推荐：target_modules="all-linear" 性能更好
-    # 但对于小模型和测试，保持具体模块可减少参数
+    r=16, # rank r
+    lora_alpha=32, # alpha (usually 2x r)
+    # ✅ TRL suggests target_modules="all-linear" for better performance
+    # for a small model and for tests, naming the modules keeps the parameter count down
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj", 
-                    "gate_proj", "up_proj", "down_proj"],  # 包含MLP层
+                    "gate_proj", "up_proj", "down_proj"],  # includes the MLP layers
     lora_dropout=0.05,
     bias="none",
     task_type="CAUSAL_LM",
 )
 
-# 5. 定义 GRPO 训练参数（基于TRL最佳实践优化）
+# 5. GRPO training arguments (tuned from TRL practice)
 training_args = GRPOConfig(
     output_dir="qwen_grpo_lora_multigpu",
     num_train_epochs=1,
     
     # ============================================================================
-    # 批次配置（多GPU下每张卡的批次）
+    # Batch settings (per GPU, under multi-GPU)
     # ============================================================================
-    per_device_train_batch_size=2,  # 每个GPU的批次大小
-    gradient_accumulation_steps=2,   # 减少累积步数（因为多GPU总批次已增大）
-    # 如果有2个GPU：总批次 = 2 GPU × 2 batch × 2 accum = 8
-    # 如果有4个GPU：总批次 = 4 GPU × 2 batch × 2 accum = 16
+    per_device_train_batch_size=2,  # batch size per GPU
+    gradient_accumulation_steps=2,   # fewer accumulation steps (the multi-GPU batch is already larger)
+    # With 2 GPUs: total batch = 2 GPU × 2 batch × 2 accum = 8
+    # With 4 GPUs: total batch = 4 GPU × 2 batch × 2 accum = 16
     
     # ============================================================================
-    # 生成配置（GRPO核心参数）
+    # Generation settings (core GRPO arguments)
     # ============================================================================
-    num_generations=4,  # 每个prompt生成4个候选回答
-    generation_batch_size=4,  # ✅ TRL推荐：明确设置生成批次大小
-    max_completion_length=256,  # 缩短长度加速（测试用）
+    num_generations=4,  # generate 4 candidate answers per prompt
+    generation_batch_size=4,  # ✅ TRL suggests: set the generation batch size explicitly
+    max_completion_length=256,  # shorter length to go faster (for testing)
     max_prompt_length=1024,
     
     # ============================================================================
-    # 采样参数（增加生成多样性）
+    # Sampling parameters (more diverse generations)
     # ============================================================================
-    temperature=0.9,  # TRL推荐：0.7-0.9之间
+    temperature=0.9,  # TRL suggests 0.7-0.9
     top_p=0.9,
-    top_k=50,  # ✅ 添加top_k采样
+    top_k=50,  # ✅ add top-k sampling
     
     # ============================================================================
-    # 优化器配置（GRPO/RL训练需要小心设置）
+    # Optimizer settings (GRPO/RL needs a careful setup)
     # ============================================================================
-    learning_rate=5e-5,  # 参考TRL GRPO示例
-    warmup_ratio=0.1,  # 10%步数warmup
-    max_grad_norm=1.0,  # ✅ TRL推荐：梯度裁剪防止训练不稳定
+    learning_rate=5e-5,  # from the TRL GRPO example
+    warmup_ratio=0.1,  # warmup for 10% of steps
+    max_grad_norm=1.0,  # ✅ TRL suggests: gradient clipping so training stays stable
     optim="paged_adamw_8bit",
     
     # ============================================================================
-    # GRPO特定参数
+    # GRPO-specific arguments
     # ============================================================================
-    beta=0.01,  # KL散度系数（2025-11-06修复：0.0→0.01）
+    beta=0.01,  # KL coefficient (fixed 2025-11-06: 0.0→0.01)
     # 
-    # 修复原因：
-    # - beta=0.0 导致模型无约束偏离预训练分布
-    # - 从预训练模型直接GRPO（无SFT基础）需要保持一定约束
-    # - beta=0.01 是从预训练开始的推荐值（小惩罚，允许探索但不崩溃）
+    # Why this was changed:
+    # - beta=0.0 lets the model drift away from the pretrained distribution with no constraint
+    # - GRPO straight from the pretrained model (no SFT) needs some constraint
+    # - beta=0.01 is the suggested value when starting from pretraining (a small penalty: explore, but do not collapse)
     # 
-    # 调参建议：
-    # - 如果模型输出混乱 → 增大beta (0.05, 0.1)
-    # - 如果模型太保守不学习 → 减小beta (0.001, 0.005)
+    # Tuning notes:
+    # - If the output is messy → raise beta (0.05, 0.1)
+    # - If the model is too conservative to learn → lower beta (0.001, 0.005)
     # 
-    # loss_type="grpo",  # 默认值，可不设置
+    # loss_type="grpo",  # the default; you can leave it unset
     
     # ============================================================================
-    # 显存优化（多GPU + 4-bit量化）
+    # Memory settings (multi-GPU + 4-bit)
     # ============================================================================
-    # ⚠️ DDP + gradient_checkpointing + LoRA 存在兼容性问题
-    # 错误：RuntimeError: Expected to mark a variable ready only once
+    # ⚠️ DDP + gradient_checkpointing + LoRA has a compatibility problem
+    # Error: RuntimeError: Expected to mark a variable ready only once
     # 
-    # 解决方案：关闭 gradient_checkpointing（DDP 模式要求）
-    # - DDP 使用 hook 机制跟踪参数梯度
-    # - gradient_checkpointing 会重新计算导致参数被多次标记
-    # - 与 LoRA 参数组合时触发冲突
+    # Fix: turn gradient_checkpointing off (required in DDP mode)
+    # - DDP uses hooks to track parameter gradients
+    # - gradient_checkpointing recomputes and marks parameters more than once
+    # - Combined with LoRA parameters, that triggers the conflict
     # 
-    # 如果显存不足：
-    # - 减小 per_device_train_batch_size
-    # - 增加 gradient_accumulation_steps
-    # - 减小 num_generations 或 max_completion_length
-    gradient_checkpointing=False,  # ❌ DDP+LoRA 模式下必须关闭
-    fp16=True,  # 与量化dtype一致
+    # If you run out of memory:
+    # - lower per_device_train_batch_size
+    # - raise gradient_accumulation_steps
+    # - lower num_generations or max_completion_length
+    gradient_checkpointing=False,  # ❌ must be off in DDP+LoRA mode
+    fp16=True,  # matches the quantization dtype
     
     # ============================================================================
-    # 数据加载加速
+    # Faster data loading
     # ============================================================================
     dataloader_num_workers=4,
     dataloader_pin_memory=True,
     
     # ============================================================================
-    # 日志和保存策略
+    # Logging and checkpointing
     # ============================================================================
-    logging_steps=2,  # 多GPU下更频繁日志
+    logging_steps=2,  # log more often under multi-GPU
     save_strategy="steps",
-    save_steps=100,       # 每 100 步保存一次
-    save_total_limit=10,  # 保留最新 10 个 checkpoint（绘制训练曲线）
+    save_steps=100,       # save every 100 steps
+    save_total_limit=10,  # keep the latest 10 checkpoints (for the training curve)
     
     # ============================================================================
-    # 分布式训练配置（accelerate自动处理）
+    # Distributed training (accelerate handles this)
     # ============================================================================
-    # accelerate 会根据环境变量自动检测多GPU
+    # accelerate detects multi-GPU from the environment
 )
 
-# 6. 定义奖励函数（GRPO 需要）
+# 6. Define the reward function (required by GRPO)
 def reward_func(completions, ground_truth=None, **kwargs):
     """
-    GRPO 奖励函数：仅评估最终答案的正确性
+    GRPO reward: score only whether the final answer is correct
     
-    设计原则：
-    - 每个输出对应一个标量奖励（outcome-based reward）
-    - 只评估最终结果，不对推理过程、格式、长度等中间特征打分
-    - GRPO 框架会自动归一化: r̃ᵢ = (rᵢ - mean(r)) / std(r)
-    - 归一化后的奖励会分配给该输出的所有 token
+    Design:
+    - each output gets one scalar reward (outcome-based)
+    - score only the final result, not the reasoning, format, length, or other intermediate features
+    - GRPO normalizes automatically: r̃ᵢ = (rᵢ - mean(r)) / std(r)
+    - the normalized reward is assigned to every token of that output
     
-    参数：
-    - completions: 生成的文本列表（字符串列表）
-    - ground_truth: 正确答案列表（必需，用于评估准确性）
-    - **kwargs: 其他参数（prompts, completions_ids 等）
+    Arguments:
+    - completions: list of generated texts (list of strings)
+    - ground_truth: list of correct answers (required, for scoring)
+    - **kwargs: other arguments (prompts, completions_ids, and so on)
     
-    返回: 
-    - List[float]: 每个 completion 一个标量分数
-        * 1.0: 答案完全正确
-        * 0.0: 答案错误
+    Returns: 
+    - List[float]: one scalar score per completion
+        * 1.0: answer fully correct
+        * 0.0: answer wrong
     
-    奖励机制说明：
-    通过多次采样 (num_generations=4)，GRPO 会对比不同候选的奖励：
-    - 高奖励样本（答案正确）→ 增加其生成概率
-    - 低奖励样本（答案错误）→ 降低其生成概率
-    模型会自然学到"哪些推理路径导致正确答案"，无需人工设计过程奖励
+    How the reward works:
+    With several samples (num_generations=4), GRPO compares the candidates' rewards:
+    - high-reward samples (correct answer) → raise their probability
+    - low-reward samples (wrong answer) → lower their probability
+    the model learns which reasoning paths lead to the correct answer, without a hand-designed process reward
     
-    注意：使用统一的答案提取和比较工具（answer_utils），确保与推理阶段一致
+    Note: use the shared answer helpers (answer_utils) so training matches inference
     """
     global reward_call_count, reward_logs
     reward_call_count += 1
@@ -306,26 +306,26 @@ def reward_func(completions, ground_truth=None, **kwargs):
     rewards = []
     
     for i, completion in enumerate(completions):
-        # 默认奖励为 0（错误）
+        # default reward is 0 (wrong)
         reward = 0.0
         
-        # 必须有 ground_truth 才能评估
+        # ground_truth is required in order to score
         if ground_truth is None or i >= len(ground_truth):
-            # 如果没有标准答案，无法判断对错，给予中性奖励
+            # with no reference answer, right and wrong cannot be judged, so use a neutral reward
             rewards.append(0.5)
             continue
         
-        # 使用统一的答案比较函数（支持数值比较）
-        # 这确保了训练时的奖励计算与推理时的准确率计算完全一致
+        # Use the shared answer comparison (numeric)
+        # This keeps the training reward identical to the inference accuracy check
         if compare_answers(completion, ground_truth[i]):
-            reward = 1.0  # ✅ 答案正确
+            reward = 1.0  # ✅ answer correct
         else:
-            reward = 0.0  # ❌ 答案错误
+            reward = 0.0  # ❌ answer wrong
         
         rewards.append(float(reward))
     
     # ============================================================================
-    # 统计奖励分布并保存日志（仅主进程）
+    # Record the reward distribution and save the log (main process only)
     # ============================================================================
     if int(os.environ.get("LOCAL_RANK", "0")) == 0:
         rewards_array = np.array(rewards)
@@ -333,7 +333,7 @@ def reward_func(completions, ground_truth=None, **kwargs):
         std_reward = rewards_array.std()
         accuracy = (rewards_array == 1.0).mean()
         
-        # 记录到JSON日志
+        # Append to the JSON log
         log_entry = {
             "call_count": reward_call_count,
             "timestamp": datetime.now().isoformat(),
@@ -347,7 +347,7 @@ def reward_func(completions, ground_truth=None, **kwargs):
         }
         reward_logs.append(log_entry)
         
-        # 每10次打印统计信息
+        # Print statistics every 10 calls
         if reward_call_count % 10 == 0:
             print(f"\n{'='*70}")
             print(f"📊 Reward Statistics (Call #{reward_call_count}):")
@@ -355,7 +355,7 @@ def reward_func(completions, ground_truth=None, **kwargs):
             print(f"   Correct: {int(accuracy*len(rewards))}/{len(rewards)}")
             print(f"{'='*70}\n")
         
-        # 每50次保存日志到文件
+        # Save the log every 50 calls
         if reward_call_count % 50 == 0:
             output_dir = "qwen_grpo_lora_multigpu"
             os.makedirs(output_dir, exist_ok=True)
@@ -364,13 +364,13 @@ def reward_func(completions, ground_truth=None, **kwargs):
                 json.dump(reward_logs, f, indent=2)
             print(f"💾 Reward logs saved to: {log_file}")
     
-    # 返回原始奖励，GRPO 框架会自动执行归一化：
+    # Return the raw reward; GRPO normalizes it:
     # r̃ᵢ = (rᵢ - mean(r)) / std(r)
-    # 然后将 r̃ᵢ 分配给输出 oᵢ 的所有 token 作为优势函数
+    # then assign r̃ᵢ to every token of output oᵢ as the advantage
     return rewards
 
-# 7. 初始化并开始训练
-with Timer("训练器初始化"):
+# 7. Initialize and start training
+with Timer("trainer init"):
     trainer = GRPOTrainer(
         model=model,
         args=training_args,
@@ -381,19 +381,19 @@ with Timer("训练器初始化"):
     )
 
 print("\n" + "="*80)
-print("🚀 开始多GPU GRPO 训练...")
+print("🚀 Starting multi-GPU GRPO training...")
 gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
-print(f"🎮 GPU数量: {gpu_count}")
-print(f"📊 配置: {len(ds)} 样本 × {training_args.num_generations} 生成 = {len(ds) * training_args.num_generations} 次推理")
+print(f"🎮 GPU count: {gpu_count}")
+print(f"📊 Config: {len(ds)} samples × {training_args.num_generations} generations = {len(ds) * training_args.num_generations}  generations")
 total_batch = training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps * gpu_count
-print(f"💾 总批次大小: {training_args.per_device_train_batch_size} × {training_args.gradient_accumulation_steps} × {gpu_count} = {total_batch}")
+print(f"💾 Total batch size: {training_args.per_device_train_batch_size} × {training_args.gradient_accumulation_steps} × {gpu_count} = {total_batch}")
 print("="*80 + "\n")
 
-with Timer("GRPO 完整训练"):
+with Timer("full GRPO training"):
     trainer.train()
 
 # ============================================================================
-# 保存最终奖励统计日志
+# Save the final reward-statistics log
 # ============================================================================
 if int(os.environ.get("LOCAL_RANK", "0")) == 0 and reward_logs:
     output_dir = "qwen_grpo_lora_multigpu"
@@ -405,4 +405,4 @@ if int(os.environ.get("LOCAL_RANK", "0")) == 0 and reward_logs:
     print(f"📊 Total reward function calls: {reward_call_count}")
     print(f"📊 Total log entries: {len(reward_logs)}")
 
-print("\n✅ 训练完成！检查点保存在: qwen_grpo_lora_multigpu/")
+print("\n✅ Training finished. Checkpoints saved in: qwen_grpo_lora_multigpu/")

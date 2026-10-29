@@ -1,9 +1,9 @@
 """
-训练指标提取脚本 - 实验3-5 (GRPO-only)
-从SLURM日志文件中提取训练指标并保存为CSV格式
+Extract training metrics — Experiment 3-5 (GRPO-only)
+Read training metrics from a SLURM log and save them as CSV
 
-日志文件: slurm-4871595-3-5-grpo-train-full-set.out
-实验配置: GRPO-only (无SFT预训练)
+Log file: slurm-4871595-3-5-grpo-train-full-set.out
+Experiment: GRPO-only (no SFT pretraining)
 """
 
 import re
@@ -11,15 +11,15 @@ import json
 import pandas as pd
 from pathlib import Path
 
-# 配置
+# Config
 LOG_FILE = "../../output_archive/slurm-4871595-3-5-grpo-train-full-set.out"
 OUTPUT_CSV = "training_metrics.csv"
 
 def extract_metrics_from_log(log_file_path):
     """
-    从日志文件中提取训练指标
+    Extract training metrics from the log file
     
-    日志格式示例:
+    Example log line:
     {'loss': -0.0626, 'grad_norm': 0.4672642946243286, 
      'learning_rate': 1.3368983957219251e-07, ...}
     """
@@ -28,71 +28,71 @@ def extract_metrics_from_log(log_file_path):
     with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
     
-    # 匹配包含指标的字典行
+    # Match dictionary lines that contain metrics
     pattern = r"\{'loss':.*?\}"
     matches = re.findall(pattern, content)
     
-    print(f"找到 {len(matches)} 条训练记录")
+    print(f"Found {len(matches)} training records")
     
     for match in matches:
         try:
-            # 将字符串转换为字典
-            # 替换单引号为双引号以符合JSON格式
+            # Turn the string into a dict
+            # Replace single quotes with double quotes for JSON
             json_str = match.replace("'", '"')
             metrics = json.loads(json_str)
             metrics_list.append(metrics)
         except json.JSONDecodeError as e:
-            # 如果JSON解析失败，尝试用eval
+            # If JSON parsing fails, try eval
             try:
                 metrics = eval(match)
                 metrics_list.append(metrics)
             except Exception as e:
-                print(f"跳过无效记录: {e}")
+                print(f"Skipping an invalid record: {e}")
                 continue
     
     return metrics_list
 
 def main():
     print("="*70)
-    print("🔍 实验3-5 (GRPO-only) 训练指标提取")
+    print("🔍 Experiment 3-5 (GRPO-only) metric extraction")
     print("="*70)
     
-    # 检查日志文件是否存在
+    # Check that the log file exists
     log_path = Path(LOG_FILE)
     if not log_path.exists():
-        print(f"❌ 错误: 找不到日志文件 {LOG_FILE}")
+        print(f"❌ Error: log file not found {LOG_FILE}")
         return
     
-    print(f"\n📂 读取日志文件: {LOG_FILE}")
+    print(f"\n📂 Reading log file: {LOG_FILE}")
     
-    # 提取指标
+    # Extract metrics
     metrics_list = extract_metrics_from_log(log_path)
     
     if not metrics_list:
-        print("❌ 未找到训练指标数据")
+        print("❌ No training-metric data found")
         return
     
-    # 转换为DataFrame
+    # Convert to a DataFrame
     df = pd.DataFrame(metrics_list)
     
-    # 添加step列（如果不存在）
+    # Add a step column if it is missing
     if 'step' not in df.columns:
         df.insert(0, 'step', range(len(df)))
     
-    print(f"\n📊 提取的指标数量: {len(df)} 条记录")
-    print(f"📋 指标列数: {len(df.columns)} 列")
+    print(f"\n📊 Metrics extracted: {len(df)} records")
+    print(f"📋 Metric columns: {len(df.columns)} columns")
     
-    # 显示前几行
-    print("\n预览前5行数据:")
+    # Show the first rows
+    print("\nPreview of the first 5 rows:")
     print(df.head())
     
-    # 保存为CSV
+    # Save as CSV
     df.to_csv(OUTPUT_CSV, index=False)
-    print(f"\n✅ 数据已保存到: {OUTPUT_CSV}")
+    print(f"\n✅ Data saved to: {OUTPUT_CSV}")
     
-    # 打印统计摘要
+    # Print the summary
     print("\n" + "="*70)
-    print("📈 训练摘要统计")
+    print("📈 Training summary")
     print("="*70)
     
     if 'loss' in df.columns:

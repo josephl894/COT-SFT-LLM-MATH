@@ -1,15 +1,15 @@
 """
-训练指标可视化脚本 - 实验3-5 (GRPO-only) - SMALL版本
-字体配置：小号（适合论文单栏）
+Training-metric plots — Experiment 3-5 (GRPO-only) — SMALL
+Font setup: small (single-column papers)
 
-字体大小配置：
-- 主图标题: 18pt
-- 子图标题: 14pt
-- XY轴标签: 13pt
-- 刻度数字: 11pt
-- 图例: 11pt
-- 底部说明: 10pt
-- 字体: Arial
+Font sizes:
+- Main title: 18pt
+- Panel title: 14pt
+- XYAxis label: 13pt
+- Tick labels: 11pt
+- Legend: 11pt
+- Footer note: 10pt
+- Font: Arial
 """
 
 import pandas as pd
@@ -18,7 +18,7 @@ import seaborn as sns
 import numpy as np
 from pathlib import Path
 
-# 设置样式
+# Set the style
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (16, 10)
 plt.rcParams['font.family'] = 'Arial'
@@ -29,17 +29,17 @@ plt.rcParams['xtick.labelsize'] = 11
 plt.rcParams['ytick.labelsize'] = 11
 plt.rcParams['legend.fontsize'] = 11
 
-# 配置
+# Config
 CSV_FILE = "training_metrics.csv"
 OUTPUT_PNG = "training_metrics_visualization_SMALL.svg"
 OUTPUT_DIR = "../../output_archive"
 
 def plot_with_smooth(ax, x, y, color, label, window=50, alpha_raw=0.15):
-    """绘制原始数据和平滑曲线"""
-    # 原始数据（半透明）
+    """Plot the raw series and a smoothed curve"""
+    # Raw data (translucent)
     ax.plot(x, y, color=color, alpha=alpha_raw, linewidth=0.8)
     
-    # 平滑数据（滚动平均）
+    # Smoothed data (rolling average)
     y_smooth = pd.Series(y).rolling(window=window, min_periods=1, center=False).mean()
     ax.plot(x, y_smooth, color=color, linewidth=2.5, label=label)
     
@@ -47,27 +47,27 @@ def plot_with_smooth(ax, x, y, color, label, window=50, alpha_raw=0.15):
 
 def main():
     print("="*70)
-    print("📊 实验3-5 (GRPO-only) 训练可视化 - SMALL版本")
+    print("📊 Experiment 3-5 (GRPO-only) training plot — SMALL")
     print("="*70)
     
-    # 读取CSV
+    # Read the CSV
     if not Path(CSV_FILE).exists():
-        print(f"❌ 错误: 找不到 {CSV_FILE}")
-        print("   请先运行 extract_training_metrics.py")
+        print(f"❌ Error: not found {CSV_FILE}")
+        print("   Run extract_training_metrics.py first")
         return
     
     df = pd.read_csv(CSV_FILE)
-    print(f"\n✅ 读取数据: {len(df)} 条记录")
+    print(f"\n✅ Rows read: {len(df)} records")
     
-    # 创建图表
+    # Create the figure
     fig = plt.figure(figsize=(16, 10))
     gs = fig.add_gridspec(2, 4, height_ratios=[1.5, 1], hspace=0.3, wspace=0.3)
     
-    # 颜色方案
+    # Colors
     colors = sns.color_palette("husl", 5)
     
     # ==========================================================================
-    # 主图：准确率 (Accuracy)
+    # Main panel: accuracy
     # ==========================================================================
     ax1 = fig.add_subplot(gs[0, :])
     
@@ -84,12 +84,12 @@ def main():
         ax1.grid(True, alpha=0.3)
         ax1.set_ylim(0, 100)
         
-        # 去除上边框和右边框
+        # Hide the top and right spines
         ax1.spines['top'].set_visible(False)
         ax1.spines['right'].set_visible(False)
     
     # ==========================================================================
-    # 子图 (b): 训练损失 (Training Loss)
+    # Panel (b): training loss
     # ==========================================================================
     ax2 = fig.add_subplot(gs[1, 0])
     if 'loss' in df.columns:
@@ -103,7 +103,7 @@ def main():
         ax2.spines['right'].set_visible(False)
     
     # ==========================================================================
-    # 子图 (c): KL散度 (KL Divergence)
+    # Panel (c): KL divergence
     # ==========================================================================
     ax3 = fig.add_subplot(gs[1, 1])
     if 'kl' in df.columns:
@@ -119,7 +119,7 @@ def main():
         ax3.spines['right'].set_visible(False)
     
     # ==========================================================================
-    # 子图 (d): 策略熵 (Policy Entropy)
+    # Panel (d): policy entropy
     # ==========================================================================
     ax4 = fig.add_subplot(gs[1, 2])
     if 'entropy' in df.columns:
@@ -133,7 +133,7 @@ def main():
         ax4.spines['right'].set_visible(False)
     
     # ==========================================================================
-    # 子图 (e): 梯度范数 (Gradient Norm)
+    # Panel (e): gradient norm
     # ==========================================================================
     ax5 = fig.add_subplot(gs[1, 3])
     if 'grad_norm' in df.columns:
@@ -148,24 +148,24 @@ def main():
         ax5.spines['top'].set_visible(False)
         ax5.spines['right'].set_visible(False)
     
-    # 添加全局说明
+    # Add the figure note
     fig.text(0.5, 0.02, 
              'Bold lines show smoothed trends (rolling average, window=50 steps); '
              'light shaded areas show raw per-batch measurements.',
              ha='center', fontsize=10, style='italic', color='gray')
     
-    # 保存图表
+    # Save the figure
     plt.savefig(OUTPUT_PNG, format='svg', bbox_inches='tight')
-    print(f"\n✅ 图表已保存到: {OUTPUT_PNG}")
-    print(f"   字体配置: SMALL (主标题18pt, 子标题14pt, 轴标签13pt)")
+    print(f"\n✅ Figure saved to: {OUTPUT_PNG}")
+    print(f"   Fonts: SMALL (main title 18pt, panel title 14pt, axis label 13pt)")
     
-    # 同时保存到output_archive
+    # Also save a copy under output_archive
     Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
     archive_path = Path(OUTPUT_DIR) / OUTPUT_PNG
     plt.savefig(archive_path, format='svg', bbox_inches='tight')
-    print(f"📦 备份已保存到: {archive_path}")
+    print(f"📦 Backup saved to: {archive_path}")
     
-    # 打印统计摘要
+    # Print the summary
     print("\n" + "="*70)
     print("📈 GRPO-only Training Performance Summary")
     print("="*70)

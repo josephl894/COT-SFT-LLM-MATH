@@ -5,39 +5,45 @@
 #SBATCH --ntasks=1
 
 # ============================================================================
-# GRPO 模型推理评估资源配置（针�?ankner/gsm8k-CoT 数据集）
+# GRPO model inference job configuration (for the ankner/gsm8k-CoT dataset)
 # ============================================================================
-# 数据�?     | 样本�?| 时间      | 内存  | CPU | GPU    | 说明
-# ------------|--------|----------|-------|-----|--------|------------------
-# 快速测�?   | 10     | 00:15:00 | 12G   | 4   | A100×1 | 验证模型加载
-# 完整评估    | 1320   | 03:00:00 | 20G   | 8   | A100×1 | 完整测试集（当前配置�?# ============================================================================
-# 
-# 📊 计算过程（完整推理）�?#   - 测试集样�? 1320
-#   - 每样本时�? ~5�?(生成256 tokens @ 50 tokens/s on A100)
-#   - 纯推理时�? 1320 × 5s = 6600s �?1.83小时
-#   - 加载+保存开销: +20分钟
-#   - 安全余量 (×1.5): 3小时
-# 
-# 💾 显存使用（A100 40GB）：
-#   - 模型�?-bit�? LoRA: 4.5GB
-#   - KV缓存: 2-3GB
-#   - 剩余余量: ~33GB �?非常充足
+# Dataset        | Samples | Time     | Memory | CPU | GPU    | Notes
+# ---------------|---------|----------|--------|-----|--------|------------------
+# Quick test     | 10      | 00:15:00 | 12G    | 4   | A100×1 | Validate model loading
+# Full inference | 1320    | 03:00:00 | 20G    | 8   | A100×1 | Full test set (current configuration)
+# ============================================================================
+#
+# Calculation (full inference):
+#   - Test-set samples: 1320
+#   - Time per sample: ~5s (generate 256 tokens @ 50 tokens/s on A100)
+#   - Inference time: 1320 × 5s = 6600s ≈ 1.83 hours
+#   - Load + save overhead: +20 minutes
+#   - Safety margin (×1.5): 3 hours
+#
+# VRAM use (A100 40GB):
+#   - Model (4-bit) + LoRA: 4.5GB
+#   - KV cache: 2-3GB
+#   - Headroom: ~33GB, ample
 # ============================================================================
 
 # ============================================================================
-# GPU 策略：指�?A100 获得最佳性能
+# GPU policy: request A100 for the best performance
 # ============================================================================
-# 可用 GPU 型号（按性能排序）：
+# Available GPU models (sorted by performance):
 #   l40s (CUDA 8.9) > a100 (CUDA 8.0) > a40 (CUDA 8.6) > v100 (CUDA 7.0)
-#   ⚠️ p100 (CUDA 6.0) 不兼�?PyTorch 2.8+
-# 
-# 推理任务特点�?#   - 对GPU性能要求相对训练更低
-#   - A100: 推理速度最快（~50 tokens/s�?#   - A40/V100: 性能也足够（~30-40 tokens/s�?# 
-# 灵活策略：如果排队过长，可改�?--gpus-per-task=1 接受任意GPU
+#   ⚠️ p100 (CUDA 6.0) is not compatible with PyTorch 2.8+
+#
+# Inference job characteristics:
+#   - GPU performance requirements are lower than for training
+#   - A100: fastest inference (~50 tokens/s)
+#   - A40/V100: also sufficient (~30-40 tokens/s)
+#
+# Flexible policy: if the queue is too long, change to --gpus-per-task=1 to accept any GPU
 # ============================================================================
 
 # ============================================================================
-# 完整评估配置�?320样本 GRPO 推理�?# ============================================================================
+# Full inference configuration (1320-sample GRPO inference)
+# ============================================================================
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=20G
 #SBATCH --time=10:00:00
@@ -45,7 +51,7 @@
 #SBATCH --constraint="v100|a40|a100"
 
 # ============================================================================
-# 邮件通知配置
+# Email notification
 # ============================================================================
 #SBATCH --mail-user=your_email@example.com
 #SBATCH --mail-type=END,FAIL
@@ -71,20 +77,28 @@ source /apps/conda/miniforge3/24.3.0/etc/profile.d/conda.sh
 conda activate torch-env
 
 # ============================================================================
-# 运行 GRPO 模型推理评估
+# Run GRPO model inference
 # ============================================================================
-# 
-# 脚本功能�?#   1. 加载 GRPO 训练�?LoRA 模型（qwen_grpo_lora_multigpu�?#   2. 在测试集上进行推理（train[924:934] �?train[924:1319]�?#   3. 计算 accuracy 并保存详细结�?#   4. 输出目录：inference_results_grpo/
-# 
-# 输出文件�?#   - inference_results.json      : 所有样本的推理结果
-#   - evaluation_metrics.json     : accuracy 等评估指�?#   - wrong_cases.json            : 错误案例分析
-# 
-# 配置切换�?#   - 当前�?0条测试（train[924:934]�?#   - 完整评估：修改代码第45行为 train[924:1319]
-#   - 同时切换 SLURM 配置到方案B（更多资源）
-# 
+#
+# What the script does:
+#   1. Load the GRPO-trained LoRA model (qwen_grpo_lora_multigpu)
+#   2. Run inference on the test set (train[924:934] or train[924:1319])
+#   3. Compute accuracy and save detailed results
+#   4. Output directory: inference_results_grpo/
+#
+# Output files:
+#   - inference_results.json      : inference result for every sample
+#   - evaluation_metrics.json     : accuracy and other evaluation metrics
+#   - wrong_cases.json            : error-case analysis
+#
+# Switching configuration:
+#   - Current: 10 test samples, train[924:934]
+#   - Full inference: change line 45 of the code to train[924:1319]
+#   - Also switch the SLURM configuration to the option with more resources
+#
 echo "📊 Starting GRPO model inference..."
 python 4-qwen-grpo-inference.py
-# 
+#
 # ============================================================================
 
 # Check exit status
@@ -92,10 +106,10 @@ EXIT_CODE=$?
 echo ""
 echo "=========================================="
 if [ $EXIT_CODE -eq 0 ]; then
-    echo "�?Inference completed successfully!"
+    echo "✅ Inference completed successfully!"
     echo "📁 Results saved in: inference_results_grpo/"
 else
-    echo "�?Inference failed with exit code: $EXIT_CODE"
+    echo "❌ Inference failed with exit code: $EXIT_CODE"
 fi
 echo "Job finished at: `date`"
 echo "=========================================="

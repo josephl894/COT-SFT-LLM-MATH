@@ -1,5 +1,5 @@
 # mamba activate torch-env
-# Baseline 评估：直接使用 Qwen2.5-Coder-1.5B 原始模型，不做任何微调
+# Baseline eval: use the original Qwen2.5-Coder-1.5B model, with no fine-tuning
 
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -8,10 +8,10 @@ import json
 from tqdm import tqdm
 import os
 
-# 导入统一的答案提取和比较工具
+# Import the shared answer extraction and comparison helpers
 from answer_utils import extract_answer, compare_answers
 
-# 检查GPU可用性
+# Check GPU availability
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
@@ -20,7 +20,7 @@ if torch.cuda.is_available():
     gpu_name = torch.cuda.get_device_name(0)
     print(f"GPU name: {gpu_name}")
     
-    # 检查是否是不兼容的 P100
+    # Check for an incompatible P100
     if "P100" in gpu_name:
         print("\n" + "="*70)
         print("❌ ERROR: P100 GPU (CUDA 6.0) is not compatible with PyTorch 2.8+")
@@ -32,7 +32,7 @@ if torch.cuda.is_available():
 else:
     print("WARNING: CUDA not available, will use CPU (very slow!)")
 
-# 1. 配置 4-bit 量化参数
+# 1. Configure 4-bit quantization
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_quant_type="nf4",
@@ -40,32 +40,32 @@ bnb_config = BitsAndBytesConfig(
     bnb_4bit_use_double_quant=True,
 )
 
-# 2. 加载数据集（测试集：1320 samples）
+# 2. Load the dataset (test set: 1320 samples)
 print("Loading dataset...")
 ds = load_dataset("ankner/gsm8k-CoT", split="test")
-# 小批量测试（200个样本）：
+# Small-batch test (200 samples):
 # ds = load_dataset("ankner/gsm8k-CoT", split="test[:200]")
 
 def to_chat(e):
     """
-    将数据集格式转换为推理格式
-    输入字段（ankner/gsm8k-CoT）：
-    - question: 问题文本（字符串）
-    - response: CoT推理步骤（字符串）
-    - answer: 最终答案（字符串）
+    Convert the dataset into the inference format
+    Input fields (ankner/gsm8k-CoT):
+    - question: question text (string)
+    - response: CoT reasoning steps (string)
+    - answer: final answer (string)
     
-    输出格式：
-    - question: 问题文本
-    - answer: <think>推理步骤</think>\n最终答案
-    - ground_truth: 最终答案（用于评估）
+    Output format:
+    - question: question text
+    - answer: <think>reasoning steps</think>\nfinal answer
+    - ground_truth: final answer (used for evaluation)
     """
-    # 直接使用新数据集的字段，无需复杂解析
+    # Use the new dataset fields directly; no complex parsing
     think_process = e["response"].strip()
     final_ans = e["answer"].strip()
     
-    # 构建完整答案
+    # Build the full answer
     full_answer = f"<think>{think_process}</think>\n{final_ans}"
-    ground_truth = final_ans  # 用于评估的标准答案
+    ground_truth = final_ans  # reference answer used for evaluation
     
     return {
         "question": e['question'], 
@@ -76,7 +76,7 @@ def to_chat(e):
 ds = ds.map(to_chat)
 print(f"Loaded {len(ds)} test samples")
 
-# 3. 加载原始基础模型（不加载任何 LoRA adapter）
+# 3. Load the original base model (no LoRA adapter)
 print("\n" + "="*70)
 print("🔧 Loading BASELINE model (no fine-tuning)...")
 print("   Model: Qwen/Qwen2.5-Coder-1.5B")
@@ -94,27 +94,27 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 model.eval()
 
-# 4. 加载分词器
+# 4. Load the tokenizer
 tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 tok.pad_token = tok.eos_token
 
-# 5. 推理函数
+# 5. Inference function
 def generate_answer(question, max_length=2048):
     """
-    生成答案（Baseline 使用 Qwen 官方 chat template）
+    Generate an answer (baseline uses Qwen's official chat template)
     
-    设计说明：
-    - Baseline 应该展示预训练模型的最佳性能
-    - 使用官方 chat template 确保模型在最熟悉的格式下工作
-    - 不强制特定输出格式，让模型自然发挥
+    Design notes:
+    - The baseline should show the pretrained model's best performance
+    - Use the official chat template so the model works in the format it knows best
+    - Do not force a particular output format; let the model answer naturally
     
-    生成参数说明：
-    - temperature=0.0: 使用贪心解码（选择概率最高的token）
-    - do_sample=False: 关闭随机采样
-    - 这样可以保证每次运行结果一致，便于评估和对比
+    Generation parameters:
+    - temperature=0.0: use greedy decoding (pick the highest-probability token)
+    - do_sample=False: turn off random sampling
+    - This keeps every run identical, which makes evaluation and comparison easier
     """
-    # 使用 Qwen 官方的 chat template
-    # 根据 Qwen2.5-Coder 官方文档，所有 Qwen 模型都支持 apply_chat_template
+    # Use Qwen's official chat template
+    # Per the Qwen2.5-Coder docs, every Qwen model supports apply_chat_template
     messages = [
         {
             "role": "system",
@@ -126,7 +126,7 @@ def generate_answer(question, max_length=2048):
         }
     ]
     
-    # 应用 chat template（Qwen2.5-Coder 原生支持）
+    # Apply the chat template (supported natively by Qwen2.5-Coder)
     text = tok.apply_chat_template(
         messages,
         tokenize=False,
@@ -140,19 +140,19 @@ def generate_answer(question, max_length=2048):
         outputs = model.generate(
             **inputs,
             max_new_tokens=512,
-            temperature=0.0,           # ✅ 确定性生成（贪心解码）
-            do_sample=False,           # ✅ 关闭采样
+            temperature=0.0,           # ✅ deterministic generation (greedy decoding)
+            do_sample=False,           # ✅ sampling off
             pad_token_id=tok.eos_token_id,
             eos_token_id=tok.eos_token_id,
         )
     
-    # 只提取新生成的内容（去除 prompt 部分）
+    # Keep only the newly generated text (drop the prompt)
     generated_ids = outputs[0][inputs['input_ids'].shape[1]:]
     response = tok.decode(generated_ids, skip_special_tokens=True).strip()
     
     return response
 
-# 6. 批量推理
+# 6. Batch inference
 print("\n" + "="*70)
 print("🚀 Starting BASELINE model inference...")
 print(f"📊 Test samples: {len(ds)}")
@@ -168,18 +168,18 @@ for i, example in enumerate(tqdm(ds, desc="Evaluating")):
     question = example["question"]
     ground_truth = example["ground_truth"]
     
-    # 生成答案
+    # Generate an answer
     generated_response = generate_answer(question)
     predicted_answer = extract_answer(generated_response)
     gt_answer = extract_answer(ground_truth)
     
-    # 判断是否正确（使用数值比较）
+    # Decide correctness (numeric comparison)
     is_correct = compare_answers(predicted_answer, gt_answer)
     if is_correct:
         correct += 1
     total += 1
     
-    # 保存结果
+    # Save results
     result = {
         "index": i,
         "question": question,
@@ -191,12 +191,12 @@ for i, example in enumerate(tqdm(ds, desc="Evaluating")):
     }
     results.append(result)
     
-    # 每50个样本打印一次进度
+    # Print progress every 50 samples
     if (i + 1) % 50 == 0:
         acc = correct / total
         print(f"\nProgress: {i+1}/{len(ds)}, Accuracy so far: {acc:.4f} ({acc*100:.2f}%)")
 
-# 7. 计算评估指标
+# 7. Compute evaluation metrics
 accuracy = correct / total
 print(f"\n{'='*70}")
 print(f"📈 Final Evaluation Results (BASELINE Model):")
@@ -207,17 +207,17 @@ print(f"Wrong predictions: {total - correct}")
 print(f"Accuracy: {accuracy:.4f} ({accuracy*100:.2f}%)")
 print(f"{'='*70}\n")
 
-# 8. 保存结果
-output_dir = "inference_results_baseline"  # Baseline 模型的推理结果
+# 8. Save results
+output_dir = "inference_results_baseline"  # inference results for the baseline model
 os.makedirs(output_dir, exist_ok=True)
 
-# 保存详细推理结果
+# Save detailed inference results
 results_file = os.path.join(output_dir, "inference_results.json")
 with open(results_file, "w", encoding="utf-8") as f:
     json.dump(results, f, ensure_ascii=False, indent=2)
 print(f"✅ Inference results saved to: {results_file}")
 
-# 保存评估指标
+# Save evaluation metrics
 metrics = {
     "total_samples": total,
     "correct_predictions": correct,
@@ -242,7 +242,7 @@ with open(metrics_file, "w", encoding="utf-8") as f:
     json.dump(metrics, f, ensure_ascii=False, indent=2)
 print(f"✅ Evaluation metrics saved to: {metrics_file}")
 
-# 9. 保存错误案例分析
+# 9. Save the error-case analysis
 wrong_cases = [r for r in results if not r["is_correct"]]
 wrong_cases_file = os.path.join(output_dir, "wrong_cases.json")
 with open(wrong_cases_file, "w", encoding="utf-8") as f:
@@ -250,13 +250,13 @@ with open(wrong_cases_file, "w", encoding="utf-8") as f:
 print(f"✅ Wrong cases saved to: {wrong_cases_file}")
 print(f"   Total wrong cases: {len(wrong_cases)}")
 
-# 10. 打印一些示例结果
+# 10. Print a few example results
 if len(results) > 0:
     print(f"\n{'='*70}")
     print("📝 Sample Results:")
     print(f"{'='*70}")
     
-    # 打印第一个正确的案例
+    # Print the first correct case
     correct_cases = [r for r in results if r["is_correct"]]
     if correct_cases:
         sample = correct_cases[0]
@@ -265,7 +265,7 @@ if len(results) > 0:
         print(f"Predicted: {sample['predicted_answer']}")
         print(f"Ground Truth: {sample['ground_truth_extracted']}")
     
-    # 打印第一个错误的案例
+    # Print the first incorrect case
     if wrong_cases:
         sample = wrong_cases[0]
         print(f"\n❌ Wrong Example (Index {sample['index']}):")

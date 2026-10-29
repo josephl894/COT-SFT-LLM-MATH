@@ -5,31 +5,37 @@
 #SBATCH --ntasks=1
 
 # ============================================================================
-# 多GPU训练配置（针�?ankner/gsm8k-CoT 数据集，GRPO训练�?# ============================================================================
-# 数据�?     | GPU�?| 时间      | 内存  | CPU | 说明
-# ------------|-------|----------|-------|-----|------------------
-# 测试        | 2     | 00:15:00 | 32G   | 12  | 快速测试（10样本�?# 小规�?     | 2     | 00:30:00 | 40G   | 12  | 开发调试（100样本�?# 中等规模    | 2     | 01:30:00 | 48G   | 16  | 中等规模�?000样本�?# 完整训练    | 2     | 06:00:00 | 64G   | 16  | 完整训练�?470样本，当前配置）
+# Multi-GPU training configuration (ankner/gsm8k-CoT dataset, GRPO training)
 # ============================================================================
-# 
-# 📊 计算过程（完�?GRPO 训练�?×A100）：
-#   - 有效批次大小: 2 (per_device) × 2 (grad_accum) × 2 (GPUs) = 8
-#   - 总步�? 7470 / 8 = 934 steps
-#   - 估计时间: 934 × 8s = 7472s �?2.08小时 (GRPO需生成多个候选响�?
-#   - 加载+保存开销: +30分钟
-#   - DDP同步开销: +15%
-#   - 安全余量 (×2): 6小时
-# 
-# 💾 显存使用（每�?A100 40GB）：
-#   - 模型�?-bit�? 4GB
-#   - LoRA + 优化�?+ 激活�? 8-10GB
-#   - GRPO生成缓存: 3-4GB
-#   - 剩余余量: ~23GB �?充足
-# 
-# 🚀 多GPU加速效果：
-#   - 理论加�? 2�?#   - 实际加�? ~1.7-1.8�?(通信开销)
+# Dataset       | GPUs | Time     | Memory | CPU | Notes
+# --------------|------|----------|--------|-----|------------------
+# Test          | 2    | 00:15:00 | 32G    | 12  | Quick test (10 samples)
+# Small scale   | 2    | 00:30:00 | 40G    | 12  | Development debugging (100 samples)
+# Medium scale  | 2    | 01:30:00 | 48G    | 16  | Medium scale (1000 samples)
+# Full training | 2    | 06:00:00 | 64G    | 16  | Full training (7470 samples, current configuration)
+# ============================================================================
+#
+# Calculation (full GRPO training, 2×A100):
+#   - Effective batch size: 2 (per_device) × 2 (grad_accum) × 2 (GPUs) = 8
+#   - Total steps: 7470 / 8 = 934 steps
+#   - Estimated time: 934 × 8s = 7472s ≈ 2.08 hours (GRPO must generate multiple candidate responses)
+#   - Load + save overhead: +30 minutes
+#   - DDP sync overhead: +15%
+#   - Safety margin (×2): 6 hours
+#
+# VRAM use (each A100 40GB):
+#   - Model (4-bit): 4GB
+#   - LoRA + optimizer + activations: 8-10GB
+#   - GRPO generation cache: 3-4GB
+#   - Headroom: ~23GB, sufficient
+#
+# Multi-GPU speedup:
+#   - Theoretical speedup: 2×
+#   - Actual speedup: ~1.7-1.8× (communication overhead)
 # ============================================================================
 
-# 当前配置：完整训练（7470样本�?×GPU�?#SBATCH --cpus-per-task=16
+# Current configuration: full training (7470 samples, 2×GPU)
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
 #SBATCH --time=48:00:00
 #SBATCH --gres=gpu:2
@@ -39,10 +45,12 @@
 
 
 # ============================================================================
-# 多GPU策略说明�?# 1. PyTorch DDP (DistributedDataParallel)：自动启用，无需手动配置
-# 2. accelerate 库会自动检�?SLURM 环境变量并初始化多GPU
-# 3. 每个GPU运行相同代码，但处理不同批次数据
-# 4. 梯度在GPU间自动同�?# ============================================================================
+# Multi-GPU strategy:
+# 1. PyTorch DDP (DistributedDataParallel): enabled automatically, no manual setup
+# 2. accelerate detects SLURM environment variables and initializes multi-GPU
+# 3. Each GPU runs the same code but processes a different batch
+# 4. Gradients are synchronized across GPUs automatically
+# ============================================================================
 
 echo ""
 echo "Starting at `date`"
@@ -60,21 +68,28 @@ source /apps/conda/miniforge3/24.3.0/etc/profile.d/conda.sh
 conda activate torch-env
 
 # ============================================================================
-# 多GPU DDP 训练配置
+# Multi-GPU DDP training configuration
 # ============================================================================
-# 
-# ⚠️ 重要：DDP + gradient_checkpointing + LoRA 存在已知冲突
-# 错误：RuntimeError: Expected to mark a variable ready only once
-# 解决：必须关�?gradient_checkpointing=False（已在代码中设置�?# 
-# DDP 模式特点�?#   �?配置简单，无需额外依赖
-#   �?训练速度快（1.8× 单GPU�?#   �?�?4-bit 量化 + LoRA 完美兼容
-#   �?不能使用 gradient_checkpointing
-#   📊 显存占用：~14GB/GPU（Qwen2.5-1.5B�?# 
-# 如果显存不足，可以：
-#   - 减小 per_device_train_batch_size（代码中改为 1�?#   - 增加 gradient_accumulation_steps（代码中改为 4�?#   - 减小 max_completion_length（代码中改为 128�?# 
+#
+# ⚠️ Important: DDP + gradient_checkpointing + LoRA has a known conflict
+# Error: RuntimeError: Expected to mark a variable ready only once
+# Fix: gradient_checkpointing must be False (already set in the code)
+#
+# DDP mode:
+#   ✓ Simple configuration, no extra dependencies
+#   ✓ Faster training (1.8× a single GPU)
+#   ✓ Fully compatible with 4-bit quantization + LoRA
+#   ✗ Cannot use gradient_checkpointing
+#   📊 VRAM use: ~14GB/GPU (Qwen2.5-1.5B)
+#
+# If VRAM is insufficient, you can:
+#   - Decrease per_device_train_batch_size (set to 1 in the code)
+#   - Increase gradient_accumulation_steps (set to 4 in the code)
+#   - Decrease max_completion_length (set to 128 in the code)
+#
 echo "🚀 Launching 2-GPU DDP training..."
 accelerate launch --config_file accelerate_config_2gpu.yaml 3-5-qwen-grpo-train-multigpu.py
-# 
+#
 # ============================================================================
 
 echo ""

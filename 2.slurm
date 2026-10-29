@@ -5,46 +5,53 @@
 #SBATCH --ntasks=1
 
 # ============================================================================
-# 资源配置推荐（针�?ankner/gsm8k-CoT 数据集）
+# Recommended resources (for the ankner/gsm8k-CoT dataset)
 # ============================================================================
-# 数据�?     | 样本�?| 时间      | 内存  | CPU | GPU    | 说明
-# ------------|--------|----------|-------|-----|--------|------------------
-# 测试        | 10     | 00:15:00 | 12G   | 4   | A100×1 | 快速验�?# 完整推理    | 1320   | 03:00:00 | 20G   | 8   | A100×1 | 完整测试集（当前配置�?# ============================================================================
-# 
-# 📊 计算过程（完整推理）�?#   - 测试集样�? 1320
-#   - 每样本时�? ~5�?(生成256 tokens @ 50 tokens/s)
-#   - 纯推理时�? 1320 × 5s = 6600s �?1.83小时
-#   - 加载+保存开销: +20分钟
-#   - 安全余量 (×1.5): 3小时
-# 
-# 💾 显存使用（A100 40GB）：
-#   - 模型�?-bit�? LoRA: 4.5GB
-#   - KV缓存: 2-3GB
-#   - 剩余余量: ~33GB �?非常充足
+# Dataset         | Samples | Time     | Memory | CPU | GPU    | Notes
+# ----------------|---------|----------|--------|-----|--------|------------------
+# Test            | 10      | 00:15:00 | 12G    | 4   | A100×1 | Quick check
+# Full inference  | 1320    | 03:00:00 | 20G    | 8   | A100×1 | Full test set (current configuration)
+# ============================================================================
+#
+# Calculation (full inference):
+#   - Test-set samples: 1320
+#   - Time per sample: ~5s (generate 256 tokens @ 50 tokens/s)
+#   - Inference time: 1320 × 5s = 6600s ≈ 1.83 hours
+#   - Load + save overhead: +20 minutes
+#   - Safety margin (×1.5): 3 hours
+#
+# VRAM use (A100 40GB):
+#   - Model (4-bit) + LoRA: 4.5GB
+#   - KV cache: 2-3GB
+#   - Headroom: ~33GB, ample
 # ============================================================================
 
 # ============================================================================
-# GPU 策略：指�?A100 获得最佳性能
+# GPU policy: request A100 for the best performance
 # ============================================================================
-# 可用 GPU 型号（按性能排序）：
+# Available GPU models (sorted by performance):
 #   l40s (CUDA 8.9) > a100 (CUDA 8.0) > a40 (CUDA 8.6) > v100 (CUDA 7.0)
-#   ⚠️ p100 (CUDA 6.0) 不兼�?PyTorch 2.8+
-# 
-# 推理任务特点�?#   - 对GPU性能要求相对训练更低
-#   - A100: 推理速度最快（~50 tokens/s�?#   - A40/V100: 性能也足够（~30-40 tokens/s�?# 
-# 灵活策略：如果排队过长，可改�?--gpus-per-task=1 接受任意GPU
+#   ⚠️ p100 (CUDA 6.0) is not compatible with PyTorch 2.8+
+#
+# Inference job characteristics:
+#   - GPU performance requirements are lower than for training
+#   - A100: fastest inference (~50 tokens/s)
+#   - A40/V100: also sufficient (~30-40 tokens/s)
+#
+# Flexible policy: if the queue is too long, change to --gpus-per-task=1 to accept any GPU
 # ============================================================================
 
 
 
-## 完整推理配置�?320样本推理�?#SBATCH --cpus-per-task=8
+## Full inference configuration (1320-sample inference)
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=20G
 #SBATCH --time=10:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --constraint="v100|a40|a100"
 
 # ============================================================================
-# 邮件通知配置
+# Email notification
 # ============================================================================
 #SBATCH --mail-user=your_email@example.com
 #SBATCH --mail-type=END,FAIL

@@ -155,7 +155,7 @@ def plot_training_metrics(csv_path):
     output_path = csv_path.parent / 'training_metrics_visualization.svg'
     plt.savefig(output_path, format='svg', bbox_inches='tight', pad_inches=0.2)
     print(f"\n📊 Visualization saved to: {output_path}")
-    print(f"   字体配置: LARGE (主标题26pt, 子标题18pt, 轴标签17pt, 图表尺寸18x11)")
+    print(f"   Fonts: LARGE (main title 26pt, panel title 18pt, axis label 17pt, figure 18x11)")
     
     # Show plot
     plt.show()

@@ -5,31 +5,29 @@
 #SBATCH --ntasks=1
 
 # ============================================================================
-# 资源配置推荐（根据数据集大小选择）
+# Recommended resources (choose by dataset size)
 # ============================================================================
-# 数据集大小 | 时间       | 内存  | CPU | GPU | 说明
-# -----------|-----------|-------|-----|-----|------------------
-# 10 样本    | 00:15:00  | 16G   | 4   | 1   | 快速测试
-# 100 样本   | 00:30:00  | 32G   | 8   | 1   | 小规模训练（当前配置）
-# 1000 样本  | 02:00:00  | 32G   | 8   | 1   | 中等规模
-# 全数据集   | 08:00:00  | 48G   | 16  | 1   | 完整训练 (7.5k样本)
+# Dataset size | Time      | Memory | CPU | GPU | Notes
+# -------------|-----------|--------|-----|-----|------------------
+# 10 samples   | 00:15:00  | 16G    | 4   | 1   | Quick test
+# 100 samples  | 00:30:00  | 32G    | 8   | 1   | Small-scale training (current configuration)
+# 1000 samples | 02:00:00  | 32G    | 8   | 1   | Medium scale
+# Full dataset | 08:00:00  | 48G    | 16  | 1   | Full training (7.5k samples)
 # ============================================================================
 
 # ============================================================================
-# GPU 策略：不指定型号 = 接受所有可用 GPU（L40S/A100/A40/V100）
-# 优点：大大提高获得资源速度，减少排队时间
-# 注意：系统可能分配 P100（CUDA 6.0），代码会自动检测并报警告
+# GPU policy: no model specified = accept any available GPU (L40S/A100/A40/V100)
+# Benefit: much faster to get a resource, less time in the queue
+# Note: the system may assign a P100 (CUDA 6.0); the code detects that and prints a warning
 # ============================================================================
-# 可用 GPU 型号（按性能排序）：
+# Available GPU models (sorted by performance):
 #   l40s (CUDA 8.9) > a100 (CUDA 8.0) > a40 (CUDA 8.6) > v100 (CUDA 7.0)
-#   ⚠️ p100 (CUDA 6.0) 不兼容 PyTorch 2.8+
+#   ⚠️ p100 (CUDA 6.0) is not compatible with PyTorch 2.8+
 # ============================================================================
 
 
 
-
-
-# 快速验证配置（10样本 GRPO 训练）
+# Quick validation configuration (10-sample GRPO training)
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=24G
 #SBATCH --time=00:15:00

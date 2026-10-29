@@ -1,8 +1,8 @@
-# 切到你的项目目录
+# Change to the project directory
 cd /home1/jwu56645/LLaMA-Factory
-# 确保日志目录存在
+# Make sure the log directory exists
 mkdir -p logs
-# 真正的训练命令（已加验证集 10%）
+# The actual training command (validation set of 10% already added)
 llamafactory-cli train \
     --stage sft \
     --do_train True \

@@ -13,21 +13,21 @@
 #SBATCH --mail-type=END,FAIL
 
 # ============================================================================
-# SFT + GRPO 训练任务 (全量数据: 7470 �?
-# 🚀 �?GPU 模式 (2×GPU, gradient_checkpointing=False)
-# 预估时间: ~3-4 小时 | 安全边际: 12�?| 配置: 48 小时（GPU 分区最大限制）
+# SFT + GRPO training job (7470 samples)
+# Multi-GPU mode (2 GPUs, gradient_checkpointing=False)
+# Estimated time: ~3-4 hours | safety margin: 12× | configured time: 48 hours
 # ============================================================================
 
 source /apps/conda/miniforge3/24.3.0/etc/profile.d/conda.sh
 conda activate torch-env
 
-echo "🚀 Starting SFT+GRPO Multi-GPU Training Job..."
+echo "Starting SFT+GRPO Multi-GPU Training Job..."
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURM_JOB_NODELIST"
 echo "GPUs: $SLURM_GPUS_ON_NODE"
 echo "Date: `date`"
 
-# 使用 accelerate 启动�?GPU 训练
+# Launch multi-GPU training with accelerate
 accelerate launch --config_file accelerate_config_2gpu.yaml 5-qwen-sft-grpo-train.py
 
 echo "Done at `date`"

@@ -13,8 +13,8 @@
 #SBATCH --mail-type=END,FAIL
 
 # ============================================================================
-# GRPO-only 消融评估 (全量测试�? 1319 �?
-# 预估时间: ~3 小时 | 安全边际: 8�?| 配置: 24 小时
+# GRPO-only ablation evaluation (full test set: 1319 samples)
+# Estimated time: ~3 hours | safety margin: 8× | configured time: 24 hours
 # ============================================================================
 
 source /apps/conda/miniforge3/24.3.0/etc/profile.d/conda.sh
