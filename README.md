@@ -1,5 +1,3 @@
-The run this fork is cited for trained Qwen2.5-1.5B-Instruct with LoRA on 1,000 grade-school math problems for 3 epochs (`scripts/2-qwen-cot-sft-improved.py`). The grader was rebuilt so a correct final answer scores consistently. The GRPO trainer samples 4 candidate answers. It has no finished checkpoint and no measured accuracy. Accuracy percentages later in this file are paper targets, not results from this repository. Later scripts that load Qwen2.5-Coder-0.5B are not that run.
-
 # Optimizing Mathematical Reasoning Performance of Small-Scale Language Models via CoT-SFT-GRPO
 
 **Authors:** Neural Overthinkers
